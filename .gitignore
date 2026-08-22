@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -141,3 +142,12 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+=======
+node_modules
+.env
+.env.*
+!.env.example
+dist
+coverage
+.DS_Store
+>>>>>>> b59c53b (Initial Vexoryl production commit)
