@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Logs
 logs
 *.log
@@ -70,6 +69,8 @@ web_modules/
 .env
 .env.*
 !.env.example
+# Explicitly ignore API environment file
+apps/api/.env
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -142,12 +143,3 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
-=======
-node_modules
-.env
-.env.*
-!.env.example
-dist
-coverage
-.DS_Store
->>>>>>> b59c53b (Initial Vexoryl production commit)
