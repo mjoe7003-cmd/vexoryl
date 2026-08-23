@@ -1,0 +1,5 @@
+import { Globe2, Megaphone, Zap } from 'lucide-react';
+
+export default function LaunchSection({ onStart }) {
+  return <section className="launch-section" aria-labelledby="launch-title"><div className="launch-copy"><p className="eyebrow">A live platform for people with something to say</p><h1 id="launch-title">The room changes when the audience gets a say.</h1><p>Vexoryl gives creators the tools to make live moments participatory, rewarding, and ready for anyone, anywhere.</p><button className="primary-button" onClick={onStart}>Start your creator setup <Zap size={16} /></button></div><div className="launch-features"><article><Zap size={21} /><h2>Instant payouts</h2><p>Keep earnings moving with clear balances and fast payout rails.</p></article><article><Megaphone size={21} /><h2>Director Mode</h2><p>Turn audience energy into real creative decisions on stream.</p></article><article><Globe2 size={21} /><h2>Made to travel</h2><p>English, French, and Spanish support for a global live audience.</p></article></div></section>;
+}

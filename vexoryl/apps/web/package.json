@@ -1,0 +1,22 @@
+{
+  "name": "@vexoryl/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "verify:i18n": "node scripts/verify-localization.mjs"
+  },
+  "dependencies": {
+    "@mux/mux-player-react": "^3.4.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^3.10.1",
+    "vite": "^6.0.7"
+  }
+}
