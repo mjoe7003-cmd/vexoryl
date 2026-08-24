@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, CircleDollarSign, LockKeyhole, Radio, WalletCards } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
 
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const steps = [
   { label: 'Account', icon: LockKeyhole },
   { label: 'Payouts', icon: WalletCards },
@@ -24,11 +23,8 @@ export default function CreatorOnboarding({ onComplete }) {
         const nextUser = { sub: data.user.id, name: form.name, email: form.email, role: 'creator' };
         onComplete(nextUser); window.localStorage.setItem('vexoryl_onboarding', JSON.stringify({ payout: form.payout, title: form.title })); return;
       }
-      const response = await fetch(`${API}/auth/signup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.name, email: form.email, password: form.password }) });
-      const apiData = await response.json();
-      if (!response.ok) throw new Error(apiData.error || 'Account setup failed');
-      window.localStorage.setItem('vexoryl_token', apiData.token); onComplete({ ...apiData.user, sub: apiData.user.id });
-      window.localStorage.setItem('vexoryl_onboarding', JSON.stringify({ payout: form.payout, title: form.title }));
+      if (error) throw error;
+      throw new Error('Account setup did not return a user');
     } catch (error) { setStatus(error.message); } finally { setBusy(false); }
   }
 

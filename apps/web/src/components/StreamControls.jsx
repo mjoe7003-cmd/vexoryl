@@ -1,36 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Coffee, Diamond, Flower2, Gift, LoaderCircle, Radio, Send, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
+import { sendGift as sendGiftRequest, createTaskBid } from '../lib/api.js';
 import { useTranslation } from '../i18n/I18n.jsx';
 
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const gifts = [
   { type: 'coffee', label: 'Coffee', amount: 2, icon: Coffee },
   { type: 'rose', label: 'Rose', amount: 5, icon: Flower2 },
   { type: 'diamond', label: 'Diamond', amount: 25, icon: Diamond },
 ];
-
-function getStoredToken() {
-  return window.localStorage.getItem('vexoryl_token');
-}
-
-async function getAccessToken() {
-  const { data } = await supabase.auth.getSession();
-  return data.session?.access_token || getStoredToken();
-}
-
-async function fetchWithTimeout(url, options, timeout = 10000) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeout);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } catch (error) {
-    if (error.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
 
 export function StreamControls({ streamId, recipientId, activeChallenge = { prompt: 'Fund the next creator action', current: 0, target: 100 } }) {
   const { t } = useTranslation();
@@ -70,18 +48,10 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
     setBusy(`gift-${selectedGift.type}`);
     const requestId = crypto.randomUUID();
     const payload = { recipient_id: recipientId, gift_type: selectedGift.type, amount: selectedGift.amount, request_id: requestId };
-    console.log('[Vexoryl] Sending gift', { endpoint: `${API}/monetization/gift`, payload });
+    console.log('[Vexoryl] Sending gift', payload);
     try {
-      const token = await getAccessToken();
-      const response = await fetchWithTimeout(`${API}/monetization/gift`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      console.log('[Vexoryl] Gift response', { status: response.status, ok: response.ok, data });
-      if (!response.ok) throw new Error(data.error || 'Gift could not be sent');
-      console.log('[Vexoryl] Gift ledger updated', { gift: data.gift, wallet: data.wallet });
+      const data = await sendGiftRequest(recipientId, selectedGift.type, selectedGift.amount, requestId);
+      console.log('[Vexoryl] Gift ledger updated', { data });
       showNotice('success', `${selectedGift.label} sent successfully`);
     } catch (error) {
       console.error('[Vexoryl] Gift request failed', { payload, error });
@@ -101,18 +71,10 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
     const previousChallenge = challenge;
     pendingRequests.current.add(requestId);
     const payload = { task_prompt: challenge.prompt, bid_amount: amount, request_id: requestId };
-    console.log('[Vexoryl] Placing Director Mode bid', { endpoint: `${API}/streams/${streamId}/task-bids`, payload });
+    console.log('[Vexoryl] Placing Director Mode bid', payload);
     setChallenge((current) => ({ ...current, current: Number(current.current) + amount }));
     try {
-      const token = await getAccessToken();
-      const response = await fetchWithTimeout(`${API}/streams/${streamId}/task-bids`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      console.log('[Vexoryl] Director Mode bid response', { status: response.status, ok: response.ok, data });
-      if (!response.ok) throw new Error(data.error || 'Contribution could not be submitted');
+      const data = await createTaskBid(streamId, challenge.prompt, amount);
       const realtimeEnabled = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
       if (realtimeEnabled) {
         const channel = supabase.channel(`director-${streamId}`);
@@ -137,7 +99,7 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
       } else {
         pendingRequests.current.delete(requestId);
       }
-      console.log('[Vexoryl] Director Mode ledger/bid accepted', { bid: data.bid, wallet: data.wallet, amount });
+      console.log('[Vexoryl] Director Mode ledger/bid accepted', { bid: data, amount });
       showNotice('success', 'Your contribution is live in the pool');
       setContribution('10');
     } catch (error) {

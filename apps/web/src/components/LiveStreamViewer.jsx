@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import { MessageCircle, Send, Trophy, TrendingUp } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
+import { createChatMessage, createTaskBid, getStream, listTaskBids } from '../lib/api.js';
 
 const STREAM_ID = 'stream-1';
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-const authToken = () => window.localStorage.getItem('vexoryl_token');
 
 export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Live stream' }) {
   const [chatMessages, setChatMessages] = useState([
@@ -21,8 +20,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
   useEffect(() => {
     if (!streamId) return;
 
-    fetch(`${API}/streams/${streamId}`)
-      .then((response) => (response.ok ? response.json() : null))
+    getStream(streamId)
       .then((data) => {
         if (data?.messages?.length) {
           setChatMessages(data.messages.map((message) => ({
@@ -34,17 +32,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
       })
       .catch(() => {});
 
-    const token = authToken();
-    if (token) {
-      fetch(`${API}/streams/${streamId}/task-bids`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((data) => {
-          if (Array.isArray(data?.bids)) setTaskBids(data.bids);
-        })
-        .catch(() => {});
-    }
+    listTaskBids(streamId).then((bids) => setTaskBids(bids)).catch(() => {});
 
     if (import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) {
       const channel = supabase.channel(`stream-chat-${streamId}`)
@@ -85,19 +73,10 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
     if (!draftMessage.trim()) return;
 
     const text = draftMessage.trim();
-    const token = authToken();
-    if (token) {
-      const response = await fetch(`${API}/streams/${streamId}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ text }),
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      setChatMessages((current) => [...current, { ...data.message, author: data.message.author || 'You', text: data.message.text }]);
-    } else {
-      setChatMessages((current) => [...current, { id: crypto.randomUUID(), author: 'You', text, created_at: new Date().toISOString() }]);
-    }
+    try {
+      const message = await createChatMessage(streamId, text);
+      setChatMessages((current) => [...current, message]);
+    } catch (error) { return; }
 
     setDraftMessage('');
   };
@@ -107,29 +86,10 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
     const bidAmount = Number(draftBid.amount);
     if (!draftBid.prompt.trim() || !Number.isFinite(bidAmount) || bidAmount <= 0) return;
 
-    const token = authToken();
-    if (token) {
-      const response = await fetch(`${API}/streams/${streamId}/task-bids`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ task_prompt: draftBid.prompt.trim(), bid_amount: bidAmount }),
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      setTaskBids(data.topBids || []);
-    } else {
-      const bid = {
-        id: crypto.randomUUID(),
-        stream_id: streamId,
-        user_id: 'demo-user',
-        task_prompt: draftBid.prompt.trim(),
-        bid_amount: bidAmount,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-      };
-
+    try {
+      const bid = await createTaskBid(streamId, draftBid.prompt.trim(), bidAmount);
       setTaskBids((current) => [...current, bid].sort((a, b) => Number(b.bid_amount) - Number(a.bid_amount)).slice(0, 6));
-    }
+    } catch (error) { return; }
     setDraftBid({ amount: '25', prompt: 'Create a dramatic visual transition' });
   };
 
