@@ -1,10 +1,11 @@
-import { addMessage, addTaskBid, addWalletEntry, claimDirectorTrigger, createStream, getAnalytics, getMessages, getMonitoringSnapshot, getStream, getTaskBids, getDirectorPool, listStreams, setStreamStatus } from '../models/store.js';
+import { addMessage, addTaskBid, addWalletEntry, claimDirectorTrigger, createStream, getAnalytics, getMessages, getMonitoringSnapshot, getStream, getTaskBids, getDirectorPool, listCreatorStreams, listStreams, setStreamStatus } from '../models/store.js';
 import { createMuxLiveStream } from '../services/muxService.js';
 import { broadcastDirectorTrigger } from '../services/directorService.js';
 import { notifyCreator } from '../services/notificationService.js';
 import { getCreatorAnalytics } from '../services/analyticsService.js';
 
 export function browse(req, res) { res.json({ streams: listStreams() }); }
+export function creatorStreams(req, res) { res.json({ streams: listCreatorStreams(req.user.sub) }); }
 export function detail(req, res) { const stream = getStream(req.params.id); if (!stream) return res.status(404).json({ error: 'Stream not found' }); res.json({ stream, messages: getMessages(stream.id) }); }
 export function create(req, res) { const stream = createStream({ title: req.body.title || 'Untitled stream', category: req.body.category || 'Just Chatting', description: req.body.description || '', accent: '#d9f85a', tags: req.body.tags || [] }, req.user); res.status(201).json({ stream }); }
 export async function createLiveStream(req, res) {

@@ -1,12 +1,13 @@
 import React from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 
-export function LiveStreamPlayer({ playbackId, fallbackPlaybackId = import.meta.env.VITE_MUX_TEST_PLAYBACK_ID, fallbackVideoSrc = import.meta.env.VITE_TEST_VIDEO_SRC || 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', title = 'Live stream', viewerId, metadata = {}, className = '' }) {
+export function LiveStreamPlayer({ playbackId, fallbackPlaybackId = import.meta.env.VITE_MUX_TEST_PLAYBACK_ID, fallbackVideoSrc = import.meta.env.VITE_TEST_VIDEO_SRC || 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', title = 'Live stream', viewerId, metadata = {}, className = '', playerRef }) {
   const resolvedPlaybackId = playbackId || fallbackPlaybackId;
 
   return (
     <MuxPlayer
       className={`live-stream-player ${className}`}
+      ref={playerRef}
       playbackId={resolvedPlaybackId || undefined}
       src={resolvedPlaybackId ? undefined : fallbackVideoSrc}
       streamType={resolvedPlaybackId ? 'live' : 'on-demand'}

@@ -1,17 +1,20 @@
 import { Router } from 'express';
 import { login, signup } from '../controllers/authController.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
-import { analytics, browse, chat, connect, create, createLiveStream, createTaskBid, detail, engage, listTaskBids, monitoring, transition, wallet } from '../controllers/streamController.js';
+import { analytics, browse, chat, connect, create, createLiveStream, createTaskBid, creatorStreams, detail, engage, listTaskBids, monitoring, transition, wallet } from '../controllers/streamController.js';
 import { payout } from '../controllers/monetizationController.js';
 import { triggerDirectorEvent } from '../controllers/directorController.js';
 import { gift } from '../controllers/giftController.js';
 import { moderateTextInput } from '../middleware/moderation.js';
 import { requirePayoutEligibility } from '../middleware/governance.js';
+import { requestClip, subscribe } from '../controllers/communityController.js';
+import { settings, updateSettings } from '../controllers/creatorController.js';
 
 const router = Router();
 router.post('/auth/signup', signup);
 router.post('/auth/login', login);
 router.get('/streams', browse);
+router.get('/creator/streams', requireAuth, creatorStreams);
 router.get('/streams/:id', detail);
 router.post('/streams', requireAuth, create);
 router.post('/streams/live', requireAuth, createLiveStream);
@@ -24,6 +27,10 @@ router.post('/streams/:id/:type(reactions|polls|moderation)', requireAuth, engag
 router.post('/wallet/:type(deposit|withdraw|payout)', requireAuth, wallet);
 router.post('/monetization/payout', requireAuth, requirePayoutEligibility, payout);
 router.post('/monetization/gift', requireAuth, gift);
+router.post('/subscriptions', requireAuth, subscribe);
+router.post('/streams/:id/clips', requireAuth, requestClip);
+router.get('/creator/settings', requireAuth, settings);
+router.put('/creator/settings', requireAuth, updateSettings);
 router.post('/streams/:id/director/triggers', requireAuth, triggerDirectorEvent);
 router.get('/analytics/overview', requireAuth, analytics);
 router.get('/admin/monitoring', requireAuth, requireAdmin, monitoring);

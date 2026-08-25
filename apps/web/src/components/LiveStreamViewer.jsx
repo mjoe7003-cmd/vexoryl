@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import { MessageCircle, Send, Trophy, TrendingUp } from 'lucide-react';
+import { API, apiFetch } from '../lib/api.js';
 import { supabase } from '../lib/supabase.js';
 
 const STREAM_ID = 'stream-1';
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const authToken = () => window.localStorage.getItem('vexoryl_token');
 
 export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Live stream' }) {
@@ -21,7 +21,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
   useEffect(() => {
     if (!streamId) return;
 
-    fetch(`${API}/streams/${streamId}`)
+    apiFetch(`${API}/streams/${streamId}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (data?.messages?.length) {
@@ -36,7 +36,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
 
     const token = authToken();
     if (token) {
-      fetch(`${API}/streams/${streamId}/task-bids`, {
+      apiFetch(`${API}/streams/${streamId}/task-bids`, {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((response) => (response.ok ? response.json() : null))
@@ -87,7 +87,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
     const text = draftMessage.trim();
     const token = authToken();
     if (token) {
-      const response = await fetch(`${API}/streams/${streamId}/chat`, {
+      const response = await apiFetch(`${API}/streams/${streamId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ text }),
@@ -109,7 +109,7 @@ export function LiveStreamViewer({ playbackId, streamId = STREAM_ID, title = 'Li
 
     const token = authToken();
     if (token) {
-      const response = await fetch(`${API}/streams/${streamId}/task-bids`, {
+      const response = await apiFetch(`${API}/streams/${streamId}/task-bids`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ task_prompt: draftBid.prompt.trim(), bid_amount: bidAmount }),

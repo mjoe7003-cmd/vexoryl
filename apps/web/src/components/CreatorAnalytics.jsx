@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { API, apiFetch } from '../lib/api.js';
 import './CreatorAnalytics.css';
 
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
 const fallback = {
   totalViewers: 0,
   watchHours: 0,
@@ -21,7 +21,7 @@ export function CreatorAnalytics() {
   useEffect(() => {
     const token = window.localStorage.getItem('vexoryl_token');
     if (!token) { setStatus('sample'); return undefined; }
-    fetch(`${API}/analytics/overview`, { headers: { Authorization: `Bearer ${token}` } })
+    apiFetch(`${API}/analytics/overview`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (response) => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Analytics unavailable');

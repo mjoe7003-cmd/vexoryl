@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BarChart3, Coins, Compass, LoaderCircle, Radio, ShieldCheck, Users } from 'lucide-react';
 import LiveStreamPlayer from './components/LiveStreamPlayer.jsx';
 import StreamControls from './components/StreamControls.jsx';
@@ -10,6 +10,7 @@ import CreatorAnalytics from './components/CreatorAnalytics.jsx';
 import CreatorOnboarding from './components/CreatorOnboarding.jsx';
 import LaunchSection from './components/LaunchSection.jsx';
 import MonitoringDashboard from './components/MonitoringDashboard.jsx';
+import CreatorStudioPanel from './components/CreatorStudioPanel.jsx';
 import './phase6.css';
 
 const sampleStream = {
@@ -64,18 +65,19 @@ export default function App() {
 }
 
 function WatchExperience({ user, wallet, walletError, notifications, t }) {
+  const playerRef = useRef(null);
   return (
       <section className="live-page-content">
         <div className="live-page-kicker"><span className="pulse" /> {t('liveNow')} <span className="live-page-viewers"><Users size={14} /> {sampleStream.viewers.toLocaleString()} {t('watching')}</span></div>
         <div className="live-page-heading"><div><h1>{sampleStream.title}</h1><p>{sampleStream.creator} · {sampleStream.category}</p></div><span className="live-status"><Radio size={14} /> {t('live')}</span></div>
-        <div className="live-page-player"><LiveStreamPlayer playbackId={sampleStream.playbackId} fallbackPlaybackId={import.meta.env.VITE_MUX_TEST_PLAYBACK_ID} title={sampleStream.title} viewerId={user?.sub} metadata={{ creator_name: sampleStream.creator }} /></div>
+        <div className="live-page-player"><LiveStreamPlayer playerRef={playerRef} playbackId={sampleStream.playbackId} fallbackPlaybackId={import.meta.env.VITE_MUX_TEST_PLAYBACK_ID} title={sampleStream.title} viewerId={user?.sub} metadata={{ creator_name: sampleStream.creator }} /></div>
         {walletError && <p className="wallet-inline-error" role="alert">Wallet balance is temporarily unavailable. Gifts may be declined until it reconnects.</p>}
-        <StreamControls streamId={sampleStream.id} recipientId={sampleStream.creatorId} activeChallenge={{ prompt: 'Trigger the next studio lighting scene', current: 64, target: 100 }} />
+        <StreamControls streamId={sampleStream.id} recipientId={sampleStream.creatorId} playerRef={playerRef} activeChallenge={{ prompt: 'Trigger the next studio lighting scene', current: 64, target: 100 }} />
         {notifications.length > 0 && <aside className="creator-notifications" aria-label="Creator notifications"><strong>Creator alerts</strong>{notifications.slice(0, 3).map((notification) => <p key={notification.id}>{notification.title || notification.type}</p>)}</aside>}
       </section>
   );
 }
 
 function CreatorStudio({ wallet, walletError, notifications }) {
-  return <section className="workspace-content"><div className="workspace-heading"><div><p className="eyebrow">Creator workspace</p><h1>Your room, with instruments.</h1><p>Plan your next broadcast, track momentum, and keep payouts visible.</p></div><span className="workspace-live"><span className="pulse" /> Systems ready</span></div><CreatorAnalytics />{walletError && <p className="wallet-inline-error" role="alert">Wallet balance is temporarily unavailable.</p>}{wallet && <p className="studio-note">Payout balance: <strong>{wallet.currency} {Number(wallet.balance).toFixed(2)}</strong>. {notifications.length ? `${notifications.length} alert${notifications.length === 1 ? '' : 's'} waiting.` : 'No new alerts.'}</p>}</section>;
+  return <section className="workspace-content"><div className="workspace-heading"><div><p className="eyebrow">Creator workspace</p><h1>Your room, with instruments.</h1><p>Plan your next broadcast, track momentum, and keep payouts visible.</p></div><span className="workspace-live"><span className="pulse" /> Systems ready</span></div><CreatorStudioPanel /><CreatorAnalytics />{walletError && <p className="wallet-inline-error" role="alert">Wallet balance is temporarily unavailable.</p>}{wallet && <p className="studio-note">Payout balance: <strong>{wallet.currency} {Number(wallet.balance).toFixed(2)}</strong>. {notifications.length ? `${notifications.length} alert${notifications.length === 1 ? '' : 's'} waiting.` : 'No new alerts.'}</p>}</section>;
 }

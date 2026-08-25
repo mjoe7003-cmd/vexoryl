@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Coffee, Diamond, Flower2, Gift, LoaderCircle, Radio, Send, Sparkles } from 'lucide-react';
+import { Bookmark, Coffee, Diamond, Flower2, Gift, LoaderCircle, Radio, Send, Sparkles, Star } from 'lucide-react';
+import { API, apiFetch } from '../lib/api.js';
 import { supabase } from '../lib/supabase.js';
 import { useTranslation } from '../i18n/I18n.jsx';
 
-const API = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
-const gifts = [
+const defaultGifts = [
   { type: 'coffee', label: 'Coffee', amount: 2, icon: Coffee },
   { type: 'rose', label: 'Rose', amount: 5, icon: Flower2 },
   { type: 'diamond', label: 'Diamond', amount: 25, icon: Diamond },
@@ -23,7 +23,7 @@ async function fetchWithTimeout(url, options, timeout = 10000) {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeout);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await apiFetch(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
     throw error;
@@ -32,17 +32,28 @@ async function fetchWithTimeout(url, options, timeout = 10000) {
   }
 }
 
-export function StreamControls({ streamId, recipientId, activeChallenge = { prompt: 'Fund the next creator action', current: 0, target: 100 } }) {
+export function StreamControls({ streamId, recipientId, playerRef, activeChallenge = { prompt: 'Fund the next creator action', current: 0, target: 100 } }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState(null);
   const [contribution, setContribution] = useState('10');
+  const [subscription, setSubscription] = useState('5');
+  const [gifts, setGifts] = useState(defaultGifts);
+  const [ttsMessage, setTtsMessage] = useState('');
   const [challenge, setChallenge] = useState(activeChallenge);
   const pendingRequests = useRef(new Set());
 
   useEffect(() => {
     setChallenge(activeChallenge);
   }, [activeChallenge]);
+
+  useEffect(() => {
+    if (!recipientId) return undefined;
+    apiFetch(`${API}/creator/settings?creator_id=${encodeURIComponent(recipientId)}`).then((response) => response.json()).then((data) => {
+      if (Array.isArray(data.settings?.gifts)) setGifts(data.settings.gifts.map((gift) => ({ ...gift, icon: Gift })));
+    }).catch(() => null);
+    return undefined;
+  }, [recipientId]);
 
   useEffect(() => {
     if (!streamId || !import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) return undefined;
@@ -69,7 +80,7 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
     if (!navigator.onLine) return showNotice('error', 'You are offline. Reconnect before sending a gift.');
     setBusy(`gift-${selectedGift.type}`);
     const requestId = crypto.randomUUID();
-    const payload = { recipient_id: recipientId, gift_type: selectedGift.type, amount: selectedGift.amount, request_id: requestId };
+    const payload = { recipient_id: recipientId, gift_type: selectedGift.type, amount: selectedGift.amount, tts_message: ttsMessage.trim(), request_id: requestId };
     console.log('[Vexoryl] Sending gift', { endpoint: `${API}/monetization/gift`, payload });
     try {
       const token = await getAccessToken();
@@ -83,6 +94,7 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
       if (!response.ok) throw new Error(data.error || 'Gift could not be sent');
       console.log('[Vexoryl] Gift ledger updated', { gift: data.gift, wallet: data.wallet });
       showNotice('success', `${selectedGift.label} sent successfully`);
+      setTtsMessage('');
     } catch (error) {
       console.error('[Vexoryl] Gift request failed', { payload, error });
       showNotice('error', error.message);
@@ -150,6 +162,34 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
     }
   };
 
+  const subscribe = async (event) => {
+    event.preventDefault();
+    const amount = Number(subscription);
+    if (!recipientId || !Number.isFinite(amount) || amount < 1 || amount > 500) return showNotice('error', 'Choose a subscription between $1 and $500.');
+    setBusy('subscription');
+    const requestId = crypto.randomUUID();
+    try {
+      const token = await getAccessToken();
+      const response = await fetchWithTimeout(`${API}/subscriptions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId, ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ creator_id: recipientId, amount, request_id: requestId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Subscription could not be started');
+      showNotice('success', `Subscribed for $${amount.toFixed(2)} per month`);
+    } catch (error) { showNotice('error', error.message); } finally { setBusy(''); }
+  };
+
+  const requestClip = async () => {
+    if (!streamId) return showNotice('error', 'This stream cannot be clipped yet.');
+    setBusy('clip');
+    try {
+      const token = await getAccessToken();
+      const startTime = Math.max(0, Number(playerRef?.current?.currentTime || 0) - 15);
+      const response = await fetchWithTimeout(`${API}/streams/${streamId}/clips`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ start_time: startTime, duration: 30 }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Clip could not be requested');
+      showNotice('success', `Clip requested from ${Math.floor(startTime)}s. It will appear in your clip library.`);
+    } catch (error) { showNotice('error', error.message); } finally { setBusy(''); }
+  };
+
   const progress = Math.min(100, (Number(challenge.current) / Number(challenge.target || 1)) * 100);
   return (
     <section className="stream-controls" aria-label="Stream controls">
@@ -158,10 +198,20 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
         <div className="panel-header"><Gift size={16} /><span>{t('gifts')}</span></div>
         <div className="gift-grid">
           {gifts.map((item) => {
-            const Icon = item.icon;
+            const Icon = item.icon || Gift;
             return <button key={item.type} className="gift-option" type="button" onClick={() => sendGift(item)} disabled={Boolean(busy)}><Icon size={20} /><strong>{item.label}</strong><small>${item.amount}</small>{busy === `gift-${item.type}` && <LoaderCircle className="spin" size={14} />}</button>;
           })}
         </div>
+        <label className="tts-field"><span>Optional TTS message</span><textarea value={ttsMessage} maxLength="180" onChange={(event) => setTtsMessage(event.target.value)} placeholder="Let the room hear your message..." /></label>
+      </div>
+      <div className="stream-control-section community-control">
+        <div className="panel-header"><Star size={16} /><span>Back this creator</span></div>
+        <form className="pool-form" onSubmit={subscribe}><input type="number" min="1" max="500" step="1" value={subscription} onChange={(event) => setSubscription(event.target.value)} aria-label="Monthly subscription amount" /><button type="submit" disabled={Boolean(busy)}>{busy === 'subscription' ? <LoaderCircle className="spin" size={16} /> : <Star size={16} />} Subscribe / month</button></form>
+        <small className="control-hint">Choose any amount from $1 to $500.</small>
+      </div>
+      <div className="stream-control-section clip-control">
+        <div><div className="panel-header"><Bookmark size={16} /><span>Clip the moment</span></div><small className="control-hint">Save the last 15 seconds and next 15 seconds as a shareable clip.</small></div>
+        <button className="clip-button" type="button" onClick={requestClip} disabled={Boolean(busy)}>{busy === 'clip' ? <LoaderCircle className="spin" size={16} /> : <Bookmark size={16} />} Request clip</button>
       </div>
       <div className="stream-control-section director-control">
         <div className="panel-header"><Radio size={16} /><span>{t('director')}</span></div>

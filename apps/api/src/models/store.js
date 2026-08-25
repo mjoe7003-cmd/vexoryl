@@ -13,6 +13,10 @@ const wallets = new Map();
 const idempotentResults = new Map();
 const directorPools = new Map();
 const policyAudit = [];
+const subscriptions = new Map();
+const clips = [];
+const creatorSettings = new Map();
+const defaultCreatorSettings = { ttsMinAmount: 5, gifts: [{ type: 'coffee', label: 'Coffee', amount: 2 }, { type: 'rose', label: 'Rose', amount: 5 }, { type: 'diamond', label: 'Diamond', amount: 25 }] };
 
 function getIdempotentResult(userId, requestKey) { return requestKey ? idempotentResults.get(`${userId}:${requestKey}`) : null; }
 function saveIdempotentResult(userId, requestKey, result) { if (requestKey) idempotentResults.set(`${userId}:${requestKey}`, result); return result; }
@@ -20,7 +24,7 @@ function saveIdempotentResult(userId, requestKey, result) { if (requestKey) idem
 export async function createUser({ name, email, password }) {
   if (users.some((user) => user.email === email)) throw new Error('Email already registered');
   const user = { id: randomUUID(), name, email, passwordHash: await bcrypt.hash(password, 10), role: 'creator' };
-  users.push(user); wallets.set(user.id, { balance: 0, pending: 0 });
+  users.push(user); wallets.set(user.id, { balance: 0, pending: 0 }); creatorSettings.set(user.id, structuredClone(defaultCreatorSettings));
   return publicUser(user);
 }
 
@@ -32,6 +36,7 @@ export async function authenticate(email, password) {
 
 export function publicUser(user) { const { passwordHash, ...safeUser } = user; return safeUser; }
 export function listStreams() { return streams; }
+export function listCreatorStreams(creatorId) { return streams.filter((stream) => stream.creatorId === creatorId); }
 export function getStream(id) { return streams.find((stream) => stream.id === id); }
 export function createStream(input, user) { const stream = { id: randomUUID(), ...input, creatorId: user.id, creator: user.name, creatorTag: `@${user.name.toLowerCase().replace(/\s+/g, '')}`, viewers: 0, status: 'scheduled', featured: false }; streams.unshift(stream); return stream; }
 export function setStreamStatus(id, status) { const stream = getStream(id); if (stream) stream.status = status; return stream; }
@@ -87,6 +92,29 @@ export function sendGift(senderId, recipientId, giftType, amount, requestKey, cr
   wallets.set(recipientId, recipientWallet);
   return saveIdempotentResult(senderId, requestKey, { id: randomUUID(), senderId, recipientId, giftType, amount, currency: 'USD', status: 'completed', createdAt: new Date().toISOString() });
 }
+export function getCreatorSettings(creatorId) { return creatorSettings.get(creatorId) || structuredClone(defaultCreatorSettings); }
+export function updateCreatorSettings(creatorId, settings) {
+  const next = { ttsMinAmount: Number(settings.ttsMinAmount), gifts: settings.gifts };
+  creatorSettings.set(creatorId, next);
+  return next;
+}
+export function createSubscription(userId, creatorId, amount, requestKey) {
+  const duplicate = getIdempotentResult(userId, requestKey);
+  if (duplicate) return duplicate;
+  const wallet = wallets.get(userId) || { balance: 0, pending: 0, currency: 'USD' };
+  if (wallet.balance < amount) return { error: 'Insufficient wallet balance' };
+  wallet.balance -= amount;
+  wallets.set(userId, wallet);
+  const subscription = { id: randomUUID(), userId, creatorId, amount, status: 'active', createdAt: new Date().toISOString() };
+  subscriptions.set(`${userId}:${creatorId}`, subscription);
+  return saveIdempotentResult(userId, requestKey, subscription);
+}
+export function createClip(userId, streamId, startTime, duration = 30) {
+  const clip = { id: randomUUID(), userId, streamId, startTime, duration, status: 'requested', createdAt: new Date().toISOString() };
+  clips.push(clip);
+  return clip;
+}
+export function listClips(streamId) { return clips.filter((clip) => clip.streamId === streamId).slice(-20); }
 export function getDirectorPool(streamId) { return directorPools.get(streamId) || { current: 0, target: 100, triggered: false }; }
 export function markDirectorTriggered(streamId) { const pool = getDirectorPool(streamId); pool.triggered = true; directorPools.set(streamId, pool); return pool; }
 export function claimDirectorTrigger(streamId) {
