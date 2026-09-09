@@ -1,3 +1,5 @@
+-- Requires 003_wallets_transactions.sql, which defines public.wallets and public.transactions.
+-- Apply the Supabase migrations in filename order before running this migration.
 create or replace function public.send_gift(
   sender_id_input uuid,
   recipient_id_input uuid,
