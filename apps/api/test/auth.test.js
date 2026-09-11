@@ -21,6 +21,104 @@ test('streams endpoint exposes featured live content', async () => {
   assert.equal(response.headers['server-timing'], 'api');
 });
 
+test('authenticated viewers can follow and unfollow creators', async () => {
+  const signupResponse = await request(app).post('/api/auth/signup').send({ name: 'Follow Tester', email: `follow-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const token = signupResponse.body.token;
+  const creatorId = 'creator-mara';
+
+  const followResponse = await request(app).post(`/api/creators/${creatorId}/follow`).set('Authorization', `Bearer ${token}`);
+  assert.deepEqual(followResponse.body.creatorIds, [creatorId]);
+
+  const duplicateResponse = await request(app).post(`/api/creators/${creatorId}/follow`).set('Authorization', `Bearer ${token}`);
+  assert.deepEqual(duplicateResponse.body.creatorIds, [creatorId]);
+
+  const listResponse = await request(app).get('/api/users/me/following').set('Authorization', `Bearer ${token}`);
+  assert.deepEqual(listResponse.body.creatorIds, [creatorId]);
+
+  const unfollowResponse = await request(app).delete(`/api/creators/${creatorId}/follow`).set('Authorization', `Bearer ${token}`);
+  assert.deepEqual(unfollowResponse.body.creatorIds, []);
+});
+
+test('new creators can start a stream, receive gifts, and request a payout', async () => {
+  const creator = await request(app).post('/api/auth/signup').send({ name: 'Invitee Creator', email: `invitee-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const viewer = await request(app).post('/api/auth/signup').send({ name: 'Gift Viewer', email: `gift-viewer-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const stream = await request(app).post('/api/streams').set('Authorization', `Bearer ${creator.body.token}`).send({ title: 'Invitee Live Room' });
+  const started = await request(app).post(`/api/streams/${stream.body.stream.id}/start`).set('Authorization', `Bearer ${creator.body.token}`);
+  assert.equal(started.status, 200);
+  assert.equal(started.body.stream.status, 'live');
+
+  await request(app).post('/api/wallet/deposit').set('Authorization', `Bearer ${viewer.body.token}`).send({ amount: 10 });
+  const gift = await request(app).post('/api/monetization/gift').set('Authorization', `Bearer ${viewer.body.token}`).set('Idempotency-Key', randomUUID()).send({ recipient_id: creator.body.user.id, gift_type: 'rose', amount: 5 });
+  assert.equal(gift.status, 201);
+  assert.equal(gift.body.wallet.balance, 5);
+
+  const payout = await request(app).post('/api/monetization/payout').set('Authorization', `Bearer ${creator.body.token}`).set('Idempotency-Key', randomUUID()).send({ amount: 4.75 });
+  assert.equal(payout.status, 202);
+  assert.equal(payout.body.wallet.pending, 4.75);
+});
+
+test('only the stream creator can change live status', async () => {
+  const creator = await request(app).post('/api/auth/signup').send({ name: 'Stream Owner', email: `owner-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const viewer = await request(app).post('/api/auth/signup').send({ name: 'Stream Viewer', email: `stream-viewer-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const stream = await request(app).post('/api/streams').set('Authorization', `Bearer ${creator.body.token}`).send({ title: 'Ownership Test Room' });
+
+  const forbidden = await request(app).post(`/api/streams/${stream.body.stream.id}/start`).set('Authorization', `Bearer ${viewer.body.token}`);
+  assert.equal(forbidden.status, 404);
+
+  const started = await request(app).post(`/api/streams/${stream.body.stream.id}/start`).set('Authorization', `Bearer ${creator.body.token}`);
+  assert.equal(started.status, 200);
+  assert.equal(started.body.stream.status, 'live');
+});
+
+test('ended streams expose a 48-hour VOD expiry window', async () => {
+  const creator = await request(app).post('/api/auth/signup').send({ name: 'VOD Creator', email: `vod-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const stream = await request(app).post('/api/streams').set('Authorization', `Bearer ${creator.body.token}`).send({ title: 'VOD Test Room' });
+  const ended = await request(app).post(`/api/streams/${stream.body.stream.id}/stop`).set('Authorization', `Bearer ${creator.body.token}`);
+  assert.equal(ended.status, 200);
+  const expiresAt = new Date(ended.body.stream.vodExpiresAt).getTime();
+  assert.ok(expiresAt - new Date(ended.body.stream.endedAt).getTime() >= 47.99 * 60 * 60 * 1000);
+  const detail = await request(app).get(`/api/streams/${stream.body.stream.id}`);
+  assert.equal(detail.body.vodAvailable, true);
+});
+
+test('panic stop is limited to the stream creator', async () => {
+  const creator = await request(app).post('/api/auth/signup').send({ name: 'Panic Creator', email: `panic-creator-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const viewer = await request(app).post('/api/auth/signup').send({ name: 'Panic Viewer', email: `panic-viewer-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const stream = await request(app).post('/api/streams').set('Authorization', `Bearer ${creator.body.token}`).send({ title: 'Panic Test Room' });
+  const forbidden = await request(app).post(`/api/streams/${stream.body.stream.id}/panic`).set('Authorization', `Bearer ${viewer.body.token}`).send({ reason: 'not the owner' });
+  assert.equal(forbidden.status, 404);
+  const stopped = await request(app).post(`/api/streams/${stream.body.stream.id}/panic`).set('Authorization', `Bearer ${creator.body.token}`).send({ reason: 'safety concern' });
+  assert.equal(stopped.status, 202);
+  assert.equal(stopped.body.emergencyStopped, true);
+  assert.equal(stopped.body.stream.status, 'moderated');
+  assert.equal(stopped.body.stream.panicReason, 'safety concern');
+});
+
+test('pay-per-view purchase debits a wallet once and is idempotent', async () => {
+  const signupResponse = await request(app).post('/api/auth/signup').send({ name: 'PPV Viewer', email: `ppv-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const token = signupResponse.body.token;
+  const stream = await request(app).post('/api/streams').set('Authorization', `Bearer ${token}`).send({ title: 'Paid Room', ppvPrice: 8 });
+  await request(app).post('/api/wallet/deposit').set('Authorization', `Bearer ${token}`).send({ amount: 10 });
+  const key = randomUUID();
+  const purchase = await request(app).post(`/api/streams/${stream.body.stream.id}/access`).set('Authorization', `Bearer ${token}`).set('Idempotency-Key', key);
+  assert.equal(purchase.status, 201);
+  assert.equal(purchase.body.wallet.balance, 2);
+  const retry = await request(app).post(`/api/streams/${stream.body.stream.id}/access`).set('Authorization', `Bearer ${token}`).set('Idempotency-Key', key);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.alreadyOwned, true);
+});
+
+test('creator community posts are visible in the owner feed and audience export', async () => {
+  const signupResponse = await request(app).post('/api/auth/signup').send({ name: 'Community Creator', email: `community-${Date.now()}@vexoryl.test`, password: 'password123' });
+  const token = signupResponse.body.token;
+  const post = await request(app).post('/api/community/posts').set('Authorization', `Bearer ${token}`).send({ body: 'Tonight we are trying a slower, quieter format.' });
+  assert.equal(post.status, 201);
+  const feed = await request(app).get('/api/community').set('Authorization', `Bearer ${token}`);
+  assert.equal(feed.body.posts[0].body, 'Tonight we are trying a slower, quieter format.');
+  const audience = await request(app).get('/api/community/audience/export').set('Authorization', `Bearer ${token}`);
+  assert.ok(Array.isArray(audience.body.audience));
+});
+
 test('chat moderation blocks harmful and spam content before persistence', async () => {
   const harmful = await request(app).post('/api/streams/stream-1/chat').send({ text: 'I will hurt you' });
   assert.equal(harmful.status, 422);
@@ -35,6 +133,32 @@ test('chat moderation blocks harmful and spam content before persistence', async
   assert.equal(allowed.status, 201);
   assert.equal(allowed.body.moderation.flag_level, 'none');
   assert.ok(allowed.body.moderation.timestamp);
+});
+
+test('creator analytics AI suggestions returns safe, structured recommendations', async () => {
+  const signupResponse = await request(app).post('/api/auth/signup').send({
+    name: 'AI Tester',
+    email: `ai-${Date.now()}@vexoryl.test`,
+    password: 'password123',
+  });
+
+  const response = await request(app)
+    .post('/api/ai/insights')
+    .set('Authorization', `Bearer ${signupResponse.body.token}`)
+    .send({
+      totalViewers: 1500,
+      engagementRate: 22,
+      demographics: [{ name: 'North America', viewers: 45 }, { name: 'Europe', viewers: 35 }],
+      devices: [{ name: 'Mobile', viewers: 62 }, { name: 'Desktop', viewers: 38 }],
+      revenue: { subscriptions: 1200, gifts: 850, bids: 410, payouts: 200 },
+    });
+
+  assert.equal(response.status, 200);
+  assert.ok(Array.isArray(response.body.suggestions));
+  assert.ok(response.body.suggestions.length >= 1);
+  assert.ok(response.body.suggestions[0].title);
+  assert.ok(response.body.suggestions[0].detail);
+  assert.ok(['heuristic', 'openai'].includes(response.body.source));
 });
 
 test('live stream creation returns a clear Mux config error when credentials are not configured', async () => {

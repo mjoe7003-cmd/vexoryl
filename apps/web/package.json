@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0",
+    "tunnel": "npx cloudflared tunnel --url http://localhost:5173",
     "build": "vite build",
     "preview": "vite preview",
     "verify:i18n": "node scripts/verify-localization.mjs"

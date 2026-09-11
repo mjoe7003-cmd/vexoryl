@@ -1,8 +1,63 @@
-import { supabase } from './supabase.js';
+import { supabase, isSupabaseConfigured } from './supabase.js';
 
-export const isSupabaseConfigured = Boolean(
-  import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY,
-);
+export const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+
+function getApiToken() {
+  return window.localStorage.getItem('vexoryl_token');
+}
+
+async function apiRequest(path, options = {}) {
+  try {
+    const response = await fetch(`${API_BASE}${path.startsWith('/') ? path : `/${path}`}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getApiToken() ? { Authorization: `Bearer ${getApiToken()}` } : {}),
+        ...options.headers,
+      },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
+    return body;
+  } catch (error) {
+    if (error instanceof TypeError) throw new Error(`Cannot reach Vexoryl API at ${API_BASE}. Set VITE_API_URL to the public API URL or start the API locally.`);
+    throw error;
+  }
+}
+
+export async function signInWithApi(email, password) {
+  const body = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+  window.localStorage.setItem('vexoryl_token', body.token);
+  return { ...body.user, sub: body.user.id };
+}
+
+export async function signUpWithApi(name, email, password) {
+  const body = await apiRequest('/auth/signup', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+  window.localStorage.setItem('vexoryl_token', body.token);
+  return { ...body.user, sub: body.user.id };
+}
+
+export async function getApiWallet() {
+  return (await apiRequest('/wallet/deposit', { method: 'POST', body: JSON.stringify({ amount: 0 }) })).wallet;
+}
+
+export async function listLiveStreams() { return (await apiRequest('/streams')).streams; }
+export async function getFollowingCreators() { return (await apiRequest('/users/me/following')).creatorIds; }
+export async function setCreatorFollowState(creatorId, following) {
+  return (await apiRequest(`/creators/${creatorId}/follow`, { method: following ? 'POST' : 'DELETE' })).creatorIds;
+}
+
+export async function purchaseStreamAccess(streamId, requestId) {
+  return apiRequest(`/streams/${streamId}/access`, { method: 'POST', headers: { 'Idempotency-Key': requestId } });
+}
+
+export async function panicStopStream(streamId) {
+  return apiRequest(`/streams/${streamId}/panic`, { method: 'POST', body: JSON.stringify({ reason: 'creator_emergency_stop' }) });
+}
+
+export async function getCommunityFeed() { return (await apiRequest('/community')).posts; }
+export async function publishCommunityPost(body) { return (await apiRequest('/community/posts', { method: 'POST', body: JSON.stringify({ body }) })).post; }
+export async function exportCommunityAudience() { return (await apiRequest('/community/audience/export')).audience; }
 
 async function requireUser() {
   const { data, error } = await supabase.auth.getUser();
@@ -88,6 +143,13 @@ export async function getCreatorAnalytics() {
     revenue: data?.revenue || {},
     streamDurationTrends: data?.stream_duration_trends || [],
   };
+}
+
+export async function getAiInsights(payload) {
+  return apiRequest('/ai/insights', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
 }
 
 export async function getMonitoringSnapshot() {

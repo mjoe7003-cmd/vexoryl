@@ -1,4 +1,5 @@
 const MUX_BASE_URL = 'https://api.mux.com/video/v1/live_streams';
+const MUX_ASSET_BASE_URL = 'https://api.mux.com/video/v1/assets';
 
 function getMuxCredentials() {
   const tokenId = process.env.MUX_TOKEN_ID;
@@ -16,6 +17,7 @@ export async function createMuxLiveStream({
   passthrough,
   latency_mode = 'low',
   playback_policy = ['public'],
+  vod_retention_hours = Number(process.env.VOD_RETENTION_HOURS || 48),
   ...extraConfig
 } = {}) {
   const { tokenId, tokenSecret } = getMuxCredentials();
@@ -25,6 +27,10 @@ export async function createMuxLiveStream({
     passthrough: passthrough || 'vexoryl',
     latency_mode,
     playback_policy,
+    new_asset_settings: {
+      playback_policies: playback_policy,
+      passthrough: passthrough || 'vexoryl',
+    },
     ...extraConfig,
   };
 
@@ -57,11 +63,36 @@ export async function createMuxLiveStream({
 
   return {
     id: liveStream.id,
+    asset_id: liveStream.recent_asset_id || null,
     stream_key: liveStream.stream_key,
     playback_id: playback?.id || null,
     status: liveStream.status || 'created',
     created_at: liveStream.created_at,
     latency_mode: liveStream.latency_mode,
+    vod_retention_hours,
     playback_url: playback ? `https://stream.mux.com/${playback.id}.m3u8` : null,
   };
+}
+
+export async function deleteMuxAsset(assetId) {
+  if (!assetId) return false;
+  const { tokenId, tokenSecret } = getMuxCredentials();
+  const response = await fetch(`${MUX_ASSET_BASE_URL}/${encodeURIComponent(assetId)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Basic ${Buffer.from(`${tokenId}:${tokenSecret}`).toString('base64')}` },
+  });
+  if (!response.ok && response.status !== 404) throw new Error(`Mux API error: failed to delete asset ${assetId}`);
+  return true;
+}
+
+export async function getMuxLiveStream(liveStreamId) {
+  if (!liveStreamId) return null;
+  const { tokenId, tokenSecret } = getMuxCredentials();
+  const response = await fetch(`${MUX_BASE_URL}/${encodeURIComponent(liveStreamId)}`, {
+    headers: { Authorization: `Basic ${Buffer.from(`${tokenId}:${tokenSecret}`).toString('base64')}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Mux API error: failed to inspect live stream ${liveStreamId}`);
+  const body = await response.json();
+  return body?.data || body;
 }

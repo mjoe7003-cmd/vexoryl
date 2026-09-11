@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 const users = [];
 const streams = [
-  { id: 'stream-1', title: 'Midnight Mechanics', category: 'Build & Make', creator: 'Mara Vale', creatorTag: '@maravale', viewers: 1842, status: 'live', accent: '#d9f85a', description: 'A late-night studio session making something useful from almost nothing.', tags: ['craft', 'studio'], featured: true },
+  { id: 'stream-1', title: 'Midnight Mechanics', category: 'Build & Make', creator: 'Mara Vale', creatorTag: '@maravale', viewers: 1842, status: 'live', accent: '#d9f85a', description: 'A late-night studio session making something useful from almost nothing.', tags: ['craft', 'studio'], ppvPrice: 4.99, featured: true },
   { id: 'stream-2', title: 'The Long Table', category: 'Food & Culture', creator: 'Ari & Sol', creatorTag: '@longtable', viewers: 928, status: 'live', accent: '#f19a5c', description: 'Recipes, stories, and the people behind the plates.', tags: ['food', 'story'], featured: true },
   { id: 'stream-3', title: 'Signal / Noise', category: 'Music', creator: 'Low Orbit FM', creatorTag: '@loworbit', viewers: 611, status: 'live', accent: '#8bd7cf', description: 'An open frequency for strange sounds and soft edges.', tags: ['music', 'radio'], featured: false }
 ];
@@ -13,6 +13,9 @@ const wallets = new Map();
 const idempotentResults = new Map();
 const directorPools = new Map();
 const policyAudit = [];
+const follows = new Map();
+const streamAccess = new Map();
+const communityPosts = [];
 
 function getIdempotentResult(userId, requestKey) { return requestKey ? idempotentResults.get(`${userId}:${requestKey}`) : null; }
 function saveIdempotentResult(userId, requestKey, result) { if (requestKey) idempotentResults.set(`${userId}:${requestKey}`, result); return result; }
@@ -20,7 +23,7 @@ function saveIdempotentResult(userId, requestKey, result) { if (requestKey) idem
 export async function createUser({ name, email, password }) {
   if (users.some((user) => user.email === email)) throw new Error('Email already registered');
   const user = { id: randomUUID(), name, email, passwordHash: await bcrypt.hash(password, 10), role: 'creator' };
-  users.push(user); wallets.set(user.id, { balance: 0, pending: 0 });
+  users.push(user); wallets.set(user.id, { balance: 0, pending: 0, currency: 'USD' });
   return publicUser(user);
 }
 
@@ -32,9 +35,35 @@ export async function authenticate(email, password) {
 
 export function publicUser(user) { const { passwordHash, ...safeUser } = user; return safeUser; }
 export function listStreams() { return streams; }
+export function listFollowing(userId) { return [...(follows.get(userId) || [])]; }
+export function followCreator(userId, creatorId) { const following = follows.get(userId) || new Set(); following.add(creatorId); follows.set(userId, following); return listFollowing(userId); }
+export function unfollowCreator(userId, creatorId) { const following = follows.get(userId) || new Set(); following.delete(creatorId); follows.set(userId, following); return listFollowing(userId); }
 export function getStream(id) { return streams.find((stream) => stream.id === id); }
-export function createStream(input, user) { const stream = { id: randomUUID(), ...input, creatorId: user.id, creator: user.name, creatorTag: `@${user.name.toLowerCase().replace(/\s+/g, '')}`, viewers: 0, status: 'scheduled', featured: false }; streams.unshift(stream); return stream; }
-export function setStreamStatus(id, status) { const stream = getStream(id); if (stream) stream.status = status; return stream; }
+export function createStream(input, user) { const creatorId = user.sub || user.id; const stream = { id: randomUUID(), ...input, ppvPrice: Number(input.ppvPrice) || 0, creatorId, creator: user.name, creatorTag: `@${user.name.toLowerCase().replace(/\s+/g, '')}`, viewers: 0, status: 'scheduled', featured: false, endedAt: null, vodExpiresAt: null }; streams.unshift(stream); return stream; }
+export function purchaseStreamAccess(stream, userId, amount, requestKey) {
+  const duplicate = getIdempotentResult(userId, requestKey);
+  if (duplicate) return duplicate;
+  const wallet = wallets.get(userId) || { balance: 0, pending: 0, currency: 'USD' };
+  if (wallet.balance < amount) return null;
+  wallet.balance -= amount;
+  wallets.set(userId, wallet);
+  const creatorWallet = wallets.get(stream.creatorId);
+  if (creatorWallet && stream.creatorId !== userId) {
+    creatorWallet.balance += amount;
+    wallets.set(stream.creatorId, creatorWallet);
+  }
+  const purchase = { id: randomUUID(), streamId: stream.id, userId, amount, currency: 'USD', status: 'completed', createdAt: new Date().toISOString(), wallet };
+  streamAccess.set(`${userId}:${stream.id}`, purchase);
+  return saveIdempotentResult(userId, requestKey, purchase);
+}
+export function hasStreamAccess(streamId, userId) { return streamAccess.has(`${userId}:${streamId}`); }
+export function createCommunityPost(userId, body) { const post = { id: randomUUID(), creatorId: userId, body: String(body).trim(), createdAt: new Date().toISOString() }; communityPosts.push(post); return post; }
+export function listCommunityFeed(userId) { const creatorIds = new Set([userId, ...listFollowing(userId)]); return communityPosts.filter((post) => creatorIds.has(post.creatorId)).slice(-50).reverse(); }
+export function exportAudience(userId) { return listFollowing(userId).map((creatorId) => ({ creatorId, followedAt: null })); }
+export function setStreamStatus(id, status, userId) { const stream = getStream(id); if (!stream || (userId && stream.creatorId !== userId)) return null; stream.status = status; if (status === 'ended') { const endedAt = new Date(); stream.endedAt = endedAt.toISOString(); stream.vodExpiresAt = new Date(endedAt.getTime() + Number(process.env.VOD_RETENTION_HOURS || 48) * 60 * 60 * 1000).toISOString(); } return stream; }
+export function panicStopStream(id, userId, reason = 'creator_emergency_stop') { const stream = setStreamStatus(id, 'ended', userId); if (!stream) return null; stream.panicStoppedAt = new Date().toISOString(); stream.panicReason = reason; stream.status = 'moderated'; return stream; }
+export function listExpiredVods(now = Date.now()) { return streams.filter((stream) => stream.status === 'ended' && stream.vodExpiresAt && new Date(stream.vodExpiresAt).getTime() <= now && !stream.vodDeletedAt); }
+export function markVodDeleted(streamId) { const stream = getStream(streamId); if (!stream) return null; stream.vodDeletedAt = new Date().toISOString(); return stream; }
 export function addMessage(streamId, author, text) { const message = { id: randomUUID(), streamId, author, text, createdAt: new Date().toISOString() }; messages.push(message); return message; }
 export function getMessages(streamId) { return messages.filter((message) => message.streamId === streamId).slice(-40); }
 export function addTaskBid(streamId, userId, dto = {}) {
@@ -105,8 +134,11 @@ export function getGovernanceSnapshot(userId) {
   return { blocked: violations >= Number(process.env.MODERATION_PAYOUT_BLOCK_COUNT || 5) || highRisk >= Number(process.env.FRAUD_PAYOUT_BLOCK_COUNT || 3), moderationViolations: violations, highRiskTransactions: highRisk, evaluatedAt: new Date().toISOString() };
 }
 export function getMonitoringSnapshot() {
+  const activeStreams = streams.filter((stream) => stream.status === 'live');
   return {
-    streams: streams.filter((stream) => stream.status === 'live').map((stream) => ({ title: stream.title, status: stream.status, viewers: stream.viewers, health: stream.playbackId || stream.provider ? 'Healthy' : 'Awaiting ingest' })),
+    activeStreams: activeStreams.length,
+    totalViewers: activeStreams.reduce((total, stream) => total + Number(stream.viewers || 0), 0),
+    streams: activeStreams.map((stream) => ({ title: stream.title, status: stream.status, viewers: stream.viewers, health: stream.playbackId || stream.provider ? 'Healthy' : 'Awaiting ingest' })),
     alerts: policyAudit.filter((entry) => entry.type === 'moderation_violation' || entry.risk === 'review').slice(-20),
     anomalies: policyAudit.filter((entry) => entry.risk === 'review').length,
     generatedAt: new Date().toISOString(),

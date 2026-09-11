@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Coffee, Diamond, Flower2, Gift, LoaderCircle, Radio, Send, Sparkles } from 'lucide-react';
+import { Coffee, Diamond, Flower2, Gift, LoaderCircle, Radio, Send, Sparkles, Ticket } from 'lucide-react';
 import { supabase } from '../lib/supabase.js';
-import { sendGift as sendGiftRequest, createTaskBid } from '../lib/api.js';
+import { sendGift as sendGiftRequest, createTaskBid, purchaseStreamAccess } from '../lib/api.js';
 import { useTranslation } from '../i18n/I18n.jsx';
 
 const gifts = [
@@ -10,7 +10,7 @@ const gifts = [
   { type: 'diamond', label: 'Diamond', amount: 25, icon: Diamond },
 ];
 
-export function StreamControls({ streamId, recipientId, activeChallenge = { prompt: 'Fund the next creator action', current: 0, target: 100 } }) {
+export function StreamControls({ streamId, recipientId, ppvPrice = 0, activeChallenge = { prompt: 'Fund the next creator action', current: 0, target: 100 } }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState(null);
@@ -55,6 +55,21 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
       showNotice('success', `${selectedGift.label} sent successfully`);
     } catch (error) {
       console.error('[Vexoryl] Gift request failed', { payload, error });
+      showNotice('error', error.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const buyAccess = async () => {
+    if (!ppvPrice) return showNotice('error', 'This room is free to watch.');
+    if (!navigator.onLine) return showNotice('error', 'You are offline. Reconnect before purchasing access.');
+    setBusy('ppv');
+    const requestId = crypto.randomUUID();
+    try {
+      await purchaseStreamAccess(streamId, requestId);
+      showNotice('success', 'Access purchased successfully');
+    } catch (error) {
       showNotice('error', error.message);
     } finally {
       setBusy('');
@@ -125,6 +140,7 @@ export function StreamControls({ streamId, recipientId, activeChallenge = { prom
           })}
         </div>
       </div>
+      {ppvPrice > 0 && <div className="stream-control-section ppv-control"><div><div className="panel-header"><Ticket size={16} /><span>Pay per view</span></div><small>One-time access to this room</small></div><button className="primary-button" type="button" onClick={buyAccess} disabled={Boolean(busy)}>{busy === 'ppv' ? <LoaderCircle className="spin" size={16} /> : <Ticket size={16} />} Buy for ${Number(ppvPrice).toFixed(2)}</button></div>}
       <div className="stream-control-section director-control">
         <div className="panel-header"><Radio size={16} /><span>{t('director')}</span></div>
         <strong>{challenge.prompt}</strong>

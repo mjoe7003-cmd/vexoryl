@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase.js';
+import { getApiWallet } from '../lib/api.js';
+import { isSupabaseConfigured, supabase } from '../lib/supabase.js';
 
 export function useWallet(userId) {
   const [wallet, setWallet] = useState(null);
@@ -18,6 +19,17 @@ export function useWallet(userId) {
     setError(null);
 
     const loadWallet = async () => {
+      if (!isSupabaseConfigured || !supabase) {
+        try {
+          setWallet(await getApiWallet());
+        } catch (fetchError) {
+          if (active) setError(fetchError);
+        } finally {
+          if (active) setLoading(false);
+        }
+        return;
+      }
+
       const { data, error: fetchError } = await supabase
         .from('wallets')
         .select('id, user_id, balance, pending_balance, currency, updated_at')
@@ -30,6 +42,8 @@ export function useWallet(userId) {
     };
 
     loadWallet();
+    if (!isSupabaseConfigured || !supabase) return () => { active = false; };
+
     const channel = supabase.channel(`wallet-${userId}`)
       .on('postgres_changes', {
         event: '*',
